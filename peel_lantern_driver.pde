@@ -1,12 +1,18 @@
+boolean doSerial = true;
+
+import processing.serial.*;
+
 import gifAnimation.*;
 
 import javax.media.opengl.*;
 import processing.opengl.*;
 
-int updateMode = 2; 
+int updateMode = 1; 
 
 int maxX = 36;
-int maxY = 34;
+int maxY = 35;
+
+Serial port;
 
 // lantern frame buffer
 PGraphics lfb;
@@ -19,17 +25,21 @@ Gif anim;
 
 GL gl;
 
-//int updateMode;
 
 
 
 void setup() {
   size(500, 500, OPENGL);
   frameRate(30);
-
+  if (doSerial && Serial.list().length>0) {
+    println(Serial.list());
+    String serial = Serial.list()[0];
+    port = new Serial(this, serial, 500000);
+    String[] params = {"/bin/stty","crtscts","-F",serial};
+    exec(params);
+  }
+  
   gl = ((PGraphicsOpenGL)g).gl;
-
-  //updateMode = 2;
 
   font = loadFont("Impact-35.vlw");
 
@@ -39,7 +49,9 @@ void setup() {
 
   //anim = new Gif(this,"imagesspiral.gif");
   //anim = new Gif(this,"cycle.gif");
-  anim = new Gif(this,"7seg.gif");
+  //anim = new Gif(this,"7seg.gif");
+  //anim = new Gif(this,"Yoyo_cropped.gif");
+  anim = new Gif(this,"registration.gif");
 
 
   anim.play();
@@ -51,7 +63,23 @@ void draw() {
   background(0);
 
 
+  lfb.loadPixels();
+  flipYPixels(lfb);
+  lfb.updatePixels();
+
+  swapPixels(lfb,18,0,32,0,4,maxY);
+  swapPixels(lfb,23,0,27,0,4,maxY);
+  for(int y=0;y<maxY;y+=9) {
+    flipXPixels(lfb,0,y+0,18,4);
+    flipXPixels(lfb,0,y+4,18,4);
+    swapPixels(lfb,18,y+0,18,y+4,18,4);  
+   
+  }
+  lfb.updatePixels();
+
   drawLantern(width, height);
+
+  sendLantern();
 
   fill(255);
 
@@ -147,6 +175,74 @@ void drawLantern(float w, float h) {
  
 }
 
+void sendLantern() {
+  if (port==null) return;
+  byte[] data = new byte[32*32*3];
+  int i = 0;
+  for (int y = 0; y<maxY; y++) {
+    for (int x = 0; x<maxX; x++) {
+      if ((x+5)%9!=0 && (y+1)%9!=0) {
+        color p = lfb.pixels[y*maxX+x];
+        data[i++] = (byte)blue(p);
+        data[i++] = (byte)green(p);
+        data[i++] = (byte)red(p);
+      }
+    }
+  }
+  port.write(data);
+}
+
+color getPixel(PGraphics pg, int x, int y) {
+  return pg.pixels[y*pg.width+x];
+}
+
+void setPixel(PGraphics pg, int x, int y, color p) {
+  pg.pixels[y*pg.width+x] = p;
+}
+
+void swapPixels(PGraphics pg, int x1, int y1, int x2, int y2, int w, int h) {
+  for(int y=0;y<h;y++) {
+    for(int x=0;x<w;x++) {
+      color p = getPixel(pg,x1+x,y1+y);
+      setPixel(pg,x1+x,y1+y,getPixel(pg,x2+x,y2+y));
+      setPixel(pg,x2+x,y2+y,p);
+    }
+  }
+}
+
+void flipYPixels(PGraphics pg) {
+  flipYPixels(pg,0,0,pg.width,pg.height);
+}
+
+void flipYPixels(PGraphics pg, int x, int y, int w, int h) {
+  for(int yi=0;yi<h;yi++) {
+    for(int xi=0;xi<w/2;xi++) {
+      color p = getPixel(pg,x+xi,y+yi);
+      int fxi = w-(xi+1);
+      int fyi = yi;
+      setPixel(pg,x+xi,y+yi,getPixel(pg,x+fxi,y+fyi));
+      setPixel(pg,x+fxi,y+fyi,p);
+    }
+  }
+}
+
+void flipXPixels(PGraphics pg) {
+  flipXPixels(pg,0,0,pg.width,pg.height);
+}
+
+void flipXPixels(PGraphics pg, int x, int y, int w, int h) {
+  for(int yi=0;yi<h/2;yi++) {
+    for(int xi=0;xi<w;xi++) {
+      color p = getPixel(pg,x+xi,y+yi);
+      int fxi = xi;//pg.width-(x+1);
+      int fyi = h-(yi+1);//pg.height-(y+1);
+      setPixel(pg,x+xi,y+yi,getPixel(pg,x+fxi,y+fyi));
+      setPixel(pg,x+fxi,y+fyi,p);
+    }
+  }
+}
+
+ 
 void maskLanternFrameBuffer() {
   lfb.beginDraw();
   lfb.stroke(0);
@@ -158,6 +254,7 @@ void maskLanternFrameBuffer() {
   }
   lfb.endDraw();
 }
+
 
 
 
@@ -176,25 +273,30 @@ void updateLanternFrameBuffer() {
 }
 
 void fontTest() {
-  String message = "HackerSpace Adelaide... FORMAT...";
+  String message = "Hackerspace Adelaide";
   lfb.beginDraw();
   lfb.textFont(font, 35);
   lfb.textAlign(LEFT, TOP);
   //lfb.noSmooth();
   lfb.background(0);
-  lfb.stroke(255);
-  int x = int((frameCount/2) % int(lfb.textWidth(message)+(maxX)));
-  lfb.text(message, maxX-x, -4/*(frameCount/8.0 % lfb.height*2) -lfb.height*/);
+  //lfb.stroke(255);
+  lfb.colorMode(HSB);
+  lfb.fill((millis()/10)%255,255,255);
+  int x = int((millis()/50) % int(lfb.textWidth(message)+(maxX)));
+  lfb.text(message, maxX-x, 4/*(frameCount/8.0 % lfb.height*2) -lfb.height*/);
   lfb.endDraw();
 }
 
+
+
 void scanLines() {
-  int x1 = frameCount/3 % maxX;
-  int x2 = frameCount/7 % maxX;
-  int x3 = frameCount/13 % maxX;
-  int y1 = frameCount/17 % maxY;
-  int y2 = frameCount/11 % maxY;
-  int y3 = frameCount/5 % maxY;
+  float mult = 20;
+  int x1 = int(millis()/(3*mult)) % maxX;
+  int x2 = int(millis()/(7*mult)) % maxX;
+  int x3 = int(millis()/(13*mult)) % maxX;
+  int y1 = int(millis()/(17*mult)) % maxY;
+  int y2 = int(millis()/(11*mult)) % maxY;
+  int y3 = int(millis()/(5*mult)) % maxY;
   lfb.beginDraw();
   lfb.background(0);
 

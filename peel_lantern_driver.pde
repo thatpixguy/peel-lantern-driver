@@ -1,5 +1,8 @@
 boolean doSerial = true;
 
+boolean drawTransformed = false;
+boolean rearView = false;
+
 import processing.serial.*;
 
 import gifAnimation.*;
@@ -62,9 +65,10 @@ void draw() {
 
   background(0);
 
+  if(!drawTransformed) drawLantern(width, height);
 
   lfb.loadPixels();
-  flipYPixels(lfb);
+  if(!rearView) flipYPixels(lfb);
   lfb.updatePixels();
 
   swapPixels(lfb,18,0,32,0,4,maxY);
@@ -77,14 +81,17 @@ void draw() {
   }
   lfb.updatePixels();
 
-  drawLantern(width, height);
+  if(drawTransformed) drawLantern(width, height);
 
   sendLantern();
 
   fill(255);
 
   textAlign(LEFT,TOP);
-  text("fps:"+frameRate,5,5);
+  String debugText = "fps:"+frameRate+"\n";
+  debugText+="t: drawTransformed="+drawTransformed+"\n";
+  debugText+="f: rearView="+rearView+"\n";
+  text(debugText,5,5);
 }
 
 // symetrical random
@@ -270,6 +277,15 @@ void updateLanternFrameBuffer() {
     gifTest();
     break;
   }
+}
+
+void keyReleased() {
+    switch(key) {
+    case 'f': rearView=!rearView;
+        break;
+    case 't': drawTransformed=!drawTransformed;
+        break;
+    }
 }
 
 void fontTest() {

@@ -1,2 +1,5 @@
-this package requires teh gifAnimation library for processing.org:
+this package requires the gifAnimation library for processing.org:
 	http://www.extrapixel.ch/processing/gifAnimation/
+
+Also, it may be expecting to find:
+    code/twitter4j-core-2.2.4.jar

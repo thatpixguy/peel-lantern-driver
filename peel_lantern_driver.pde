@@ -1,7 +1,19 @@
 boolean doSerial = true;
+boolean doDraw = true;
+
+boolean doRed = true;
+boolean doGreen = true;
+boolean doBlue = true;
+
+boolean doDrawFast = true;
+boolean doDrawSimple = true;
 
 boolean drawTransformed = false;
 boolean rearView = false;
+
+boolean serialReady = false;
+
+boolean doRandomOffset = true;
 
 import processing.serial.*;
 
@@ -10,10 +22,12 @@ import gifAnimation.*;
 import javax.media.opengl.*;
 import processing.opengl.*;
 
-int updateMode = 1; 
+int updateMode = 2; 
 
 int maxX = 36;
 int maxY = 35;
+
+String inputBuffer;
 
 Serial port;
 
@@ -28,36 +42,98 @@ Gif anim;
 
 GL gl;
 
+ArrayList tweets;
 
-
-
-void setup() {
-  size(500, 500, OPENGL);
-  frameRate(30);
+void setupSerial() {
   if (doSerial && Serial.list().length>0) {
     println(Serial.list());
     String serial = Serial.list()[0];
+    serialReady = false;
     port = new Serial(this, serial, 500000);
-    String[] params = {"/bin/stty","crtscts","-F",serial};
+    //String[] params = {"/bin/stty","crtscts","hup","-F",serial};
+    String[] params = {"/bin/stty","crtscts","hup","-F",serial};
     exec(params);
   }
+}
+
+long lastTweetId() {
+    int s = tweets.size();
+    if (s>0) {
+        Tweet tweet = (Tweet)tweets.get(s-1);
+        return tweet.getId();
+    } else {
+        return -1;
+    }
+}
+
+void searchTwitter() {
+  Twitter twitter = new TwitterFactory().getInstance();
+  try {
+    Query query = new Query("format_adelaide");
+    long id = lastTweetId();
+    if(id>0) {
+        query.sinceId(id);
+    } 
+    QueryResult result = twitter.search(query);
+    for (Tweet tweet : result.getTweets()) {
+      String s = "@"+tweet.getFromUser()+": "+tweet.getText();
+      println(s);
+      tweets.add(tweet);
+    }
+  } catch (TwitterException te) {
+    println("failed to search twitter: "+te.getMessage()); 
+  }
+
+}
+
+void setup() {
+  size(500, 500, OPENGL);
+  //frameRate(100);
+
+  setupSerial();
+
+  tweets = new ArrayList();
   
+  searchTwitter(); 
+
   gl = ((PGraphicsOpenGL)g).gl;
 
   font = loadFont("Impact-35.vlw");
 
   lfb = createGraphics(maxX, maxY, JAVA2D);
 
-  led = loadImage("diffuse.png");
+  inputBuffer = "";
+
+  //led = loadImage("diffuse.png");
+  led = loadImage("diffuse16.png");
 
   //anim = new Gif(this,"imagesspiral.gif");
   //anim = new Gif(this,"cycle.gif");
   //anim = new Gif(this,"7seg.gif");
-  //anim = new Gif(this,"Yoyo_cropped.gif");
-  anim = new Gif(this,"registration.gif");
+  anim = new Gif(this,"Yoyo_cropped.gif");
+  //anim = new Gif(this,"registration.gif");
+  //anim = new Gif(this,"fire.gif");
 
+  anim.loop();
+}
 
-  anim.play();
+void serialEvent(Serial p) { 
+  String in = p.readString();
+  inputBuffer+=in;
+  if(match(inputBuffer,"Ready")!=null) {
+    serialReady=true;
+    inputBuffer="";
+  } else if(match(inputBuffer,"Err")!=null) {
+    if(p==port) {
+      inputBuffer="";
+      // close the serial port (to reset the arduino)
+      port.stop();
+      // and re-open it
+      setupSerial();
+    } else {
+      print("Where did that serial come from?");
+    }
+  }
 }
 
 void draw() {
@@ -79,6 +155,9 @@ void draw() {
     swapPixels(lfb,18,y+0,18,y+4,18,4);  
    
   }
+
+  swapPixels(lfb, 9, 26, 14, 26, 4, 8);
+
   lfb.updatePixels();
 
   if(drawTransformed) drawLantern(width, height);
@@ -91,6 +170,10 @@ void draw() {
   String debugText = "fps:"+frameRate+"\n";
   debugText+="t: drawTransformed="+drawTransformed+"\n";
   debugText+="f: rearView="+rearView+"\n";
+  debugText+="s: doDrawFast="+doDrawFast+"\n";
+  debugText+="m: doDrawSimple="+doDrawSimple+"\n";
+  debugText+="d: doDraw="+doDraw+"\n";
+  debugText+="o: doRandomOffset="+doRandomOffset+"\n";
   text(debugText,5,5);
 }
 
@@ -106,6 +189,17 @@ void drawPixel(PGraphics pg, int b, float x, float y, float sx, float sy) {
 }
 
 void drawLantern(float w, float h) {
+  if (!doDraw) return;
+  if (doDrawSimple) {
+    noTint();
+    noSmooth();
+    imageMode(CORNER);
+    //gl.glTexParameteri(gl.GL_TEXTURE_2D,gl.GL_TEXTURE_MAG_FILTER,gl.GL_NEAREST);
+    image(lfb,0,0,w,h);
+    noFill();
+    rect(0,0,w,h);
+    return;
+  }
   float xPitch = w/(maxX+1.0);
   float yPitch = h/(maxY+1.0);
 
@@ -121,6 +215,7 @@ void drawLantern(float w, float h) {
   imageMode(CENTER);
 
   noStroke();
+  noTint();
   
   // additive blending
   gl.glBlendFunc(GL.GL_SRC_ALPHA,GL.GL_ONE);
@@ -129,47 +224,70 @@ void drawLantern(float w, float h) {
   for (int y = 0; y<maxY; y++) {
     for (int x = 0; x<maxX; x++, i++) {
       color p = lfb.pixels[i];
+      int c;
       
-      int c = int(red(p));
-      tint(c, 0, 0);
-      float rx=xPitch*(x+1)+srandom(xPitch*pointSize*randomFactor);
-      float ry=yPitch*(y+1)+srandom(yPitch*pointSize*randomFactor);
+      if (doDrawFast) {
+        tint(p);
+      } else {
+        c = int(red(p));
+        tint(c, 0, 0);
+      }        
+      float rx=xPitch*(x+1);
+      float ry=yPitch*(y+1);
+      if(doRandomOffset) {
+        rx+=srandom(xPitch*pointSize*randomFactor);
+        ry+=srandom(yPitch*pointSize*randomFactor);
+      }
             
       if ((x+5)%9!=0 && (y+1)%9!=0) {
 
-        image(led,
-          rx,ry,
-          xPitch*pointSize, 
-          yPitch*pointSize);
+        if (doRed || doDrawFast) {
+          image(led,
+            rx,ry,
+            xPitch*pointSize, 
+            yPitch*pointSize);
+        }
 
       }
 
+      if (doDrawFast) continue;
+
       c = int(green(p));
       tint(0, c, 0);
-      rx=xPitch*(x+1)+srandom(xPitch*pointSize*randomFactor);
-      ry=yPitch*(y+1)+srandom(yPitch*pointSize*randomFactor);
+      rx=xPitch*(x+1);//+srandom(xPitch*pointSize*randomFactor);
+      ry=yPitch*(y+1);//+srandom(yPitch*pointSize*randomFactor);
+      if(doRandomOffset) {
+        rx+=srandom(xPitch*pointSize*randomFactor);
+        ry+=srandom(yPitch*pointSize*randomFactor);
+      }
             
       if ((x+5)%9!=0 && (y+1)%9!=0) {
    
-        image(led,
-          rx,ry,
-          xPitch*pointSize, 
-          yPitch*pointSize);
-
+        if (doGreen) {        
+          image(led,
+            rx,ry,
+            xPitch*pointSize, 
+            yPitch*pointSize);
+        }
       }
        
       c = int(blue(p));
       tint(0, 0, c);
-      rx=xPitch*(x+1)+srandom(xPitch*pointSize*randomFactor);
-      ry=yPitch*(y+1)+srandom(yPitch*pointSize*randomFactor);
+      rx=xPitch*(x+1);//+srandom(xPitch*pointSize*randomFactor);
+      ry=yPitch*(y+1);//+srandom(yPitch*pointSize*randomFactor);
+      if(doRandomOffset) {
+        rx+=srandom(xPitch*pointSize*randomFactor);
+        ry+=srandom(yPitch*pointSize*randomFactor);
+      }
             
       if ((x+5)%9!=0 && (y+1)%9!=0) {
 
-        image(led,
-          rx,ry,
-          xPitch*pointSize, 
-          yPitch*pointSize);
-
+        if (doBlue) {        
+          image(led,
+            rx,ry,
+            xPitch*pointSize, 
+            yPitch*pointSize);
+        }
       }
       
 
@@ -183,7 +301,7 @@ void drawLantern(float w, float h) {
 }
 
 void sendLantern() {
-  if (port==null) return;
+  if (port==null || serialReady==false) return;
   byte[] data = new byte[32*32*3];
   int i = 0;
   for (int y = 0; y<maxY; y++) {
@@ -266,7 +384,7 @@ void maskLanternFrameBuffer() {
 
 
 void updateLanternFrameBuffer() {
-  switch(updateMode%3) {
+  switch(updateMode) {
   case 0:
     scanLines();
     break;
@@ -276,14 +394,36 @@ void updateLanternFrameBuffer() {
   case 2:
     gifTest();
     break;
+  case 3:
+    colourTest();
+    break;
+  case 4:
+    tweetTest();
+    break;
+  default:
+    scanLines();
   }
 }
 
 void keyReleased() {
     switch(key) {
-    case 'f': rearView=!rearView;
+    case 'f': rearView^=true;
         break;
-    case 't': drawTransformed=!drawTransformed;
+    case 't': drawTransformed^=true;
+        break;
+    case 'd': doDraw^=true;
+        break;
+    case 'r': doRed^=true;
+        break;
+    case 'g': doGreen^=true;
+        break;
+    case 'b': doBlue^=true;
+        break;
+    case 's': doDrawFast^=true;
+        break;
+    case 'm': doDrawSimple^=true;
+        break;
+    case 'o': doRandomOffset^=true;
         break;
     }
 }
@@ -304,6 +444,42 @@ void fontTest() {
 }
 
 
+String tweetMessage = "";
+float tweetMessageWidth = 0;
+int tweetTimeBase = 0;
+int tweetIndex = 0;
+long tweetUpdateTime = 0;
+
+
+
+void tweetTest() {
+  
+
+  lfb.beginDraw();
+  lfb.textFont(font, 35);
+  lfb.textAlign(LEFT, TOP);
+  //lfb.noSmooth();
+  lfb.background(0);
+  //lfb.stroke(255);
+  lfb.colorMode(HSB);
+  lfb.fill((millis()/10)%255,255,255);
+  int x = int((millis()-tweetTimeBase)/30);
+  //println("x="+x);
+  if (x>tweetMessageWidth && (tweets.size()>0)) {
+    if((millis()-tweetUpdateTime)>(5*60*1000)) {
+      tweetUpdateTime=millis();
+      searchTwitter();
+    }
+    tweetTimeBase = millis();
+    tweetIndex = (tweetIndex+1) % tweets.size();
+    Tweet tweet = (Tweet)tweets.get(tweetIndex);
+    tweetMessage = tweet.getFromUser() + ": "+ tweet.getText(); 
+    println("using:"+tweetMessage);
+    tweetMessageWidth = lfb.textWidth(tweetMessage)+maxX;
+  }
+  lfb.text(tweetMessage, maxX-x, 4/*(frameCount/8.0 % lfb.height*2) -lfb.height*/);
+  lfb.endDraw();
+}
 
 void scanLines() {
   float mult = 20;
@@ -338,5 +514,12 @@ void gifTest() {
   lfb.colorMode(HSB);
   //lfb.tint(frameCount%255,255,255);
   lfb.image(anim,0,0,lfb.width,lfb.height);
+  lfb.endDraw();
+}
+
+void colourTest() {
+  lfb.beginDraw();
+  lfb.colorMode(HSB);
+  lfb.background((millis()/10)%255,255,255);
   lfb.endDraw();
 }
